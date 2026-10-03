@@ -1,13 +1,11 @@
 # Match House
 
-Landing page for Match House — mark centered on brand red.
+Landing page for Match House — mark centered on brand burgundy.
 
 ## Local preview
 
-Open `index.html` in a browser, or serve the folder:
-
 ```bash
-python3 -m http.server 4173
+python3 -m http.server 4173 --directory public
 ```
 
 Then visit [http://localhost:4173](http://localhost:4173).
