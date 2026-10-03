@@ -1,7 +1,7 @@
 # Match House
 
-- `/` — mark centered on brand burgundy
-- `/first-adopters.html` — thank-you page with pullable text (mouse + touch)
+- `/` — First Adopters thank-you page (pullable text, cream background)
+- `/mark.html` — full-bleed Match House mark on burgundy
 
 ## Local preview
 
@@ -9,4 +9,4 @@
 python3 -m http.server 4173 --directory public
 ```
 
-Then visit [http://localhost:4173](http://localhost:4173) or [http://localhost:4173/first-adopters.html](http://localhost:4173/first-adopters.html).
+Then visit [http://localhost:4173](http://localhost:4173).
