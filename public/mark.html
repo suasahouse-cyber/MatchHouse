@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Match House</title>
+    <meta name="description" content="Match House" />
+    <link rel="icon" href="match-house-mark.png" type="image/png" />
+    <style>
+      :root {
+        /* Match House palette */
+        --burgundy: #692522;
+        --brick: #8d2922;
+        --cream: #ede6d5;
+        --forest: #18231a;
+        --olive: #4c5235;
+        --taupe: #ae9c89;
+
+        --bg: var(--burgundy);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        min-height: 100dvh;
+        background-color: var(--bg);
+        overflow: hidden;
+      }
+
+      .mark-link {
+        position: fixed;
+        inset: 0;
+        display: block;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .mark {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center center;
+        display: block;
+        animation: mark-in 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+
+      @keyframes mark-in {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .mark {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="mark-link" href="index.html" aria-label="First adopters">
+      <img
+        class="mark"
+        src="match-house-mark.png"
+        alt="Match House"
+        width="1200"
+        height="1200"
+      />
+    </a>
+  </body>
+</html>
+
