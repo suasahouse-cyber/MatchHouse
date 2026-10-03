@@ -121,6 +121,13 @@
         gap: 2px;
       }
 
+      .hint-sub {
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        opacity: 0.75;
+        text-transform: none;
+      }
+
       .hint svg {
         display: block;
         width: 28px;
@@ -203,10 +210,17 @@
         const ITERATIONS = 12;
         const DAMPING = 0.97;
         const GRAVITY = 0.15;
+        const TILT_GRAVITY = 0.18;
         const FIXED_DT = 1 / 120;
         const MAX_STEPS = 4;
 
         let gravityOn = true;
+        // Screen-space gravity: +x right, +y down (defaults to falling down)
+        let gravX = 0;
+        let gravY = GRAVITY;
+        let tiltEnabled = false;
+        let tiltPermissionAsked = false;
+        let lastMotionTs = 0;
         let fontSize = 18;
         let lineHeight = 26;
         let marginX = 16;
@@ -223,11 +237,113 @@
         const hint = document.createElement("div");
         hint.className = "hint";
         hint.innerHTML =
-          '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4v18" stroke-width="1.6" stroke-linecap="round"/><path d="M10 16l6 8 6-8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Drag</span>';
+          '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4v18" stroke-width="1.6" stroke-linecap="round"/><path d="M10 16l6 8 6-8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Drag</span><span class="hint-sub">then tilt</span>';
         stage.appendChild(hint);
 
         function isMobile() {
           return window.matchMedia("(max-width: 600px)").matches;
+        }
+
+        function isTouchDevice() {
+          return (
+            window.matchMedia("(pointer: coarse)").matches ||
+            navigator.maxTouchPoints > 0
+          );
+        }
+
+        function screenAngle() {
+          if (screen.orientation && typeof screen.orientation.angle === "number") {
+            return screen.orientation.angle;
+          }
+          if (typeof window.orientation === "number") return window.orientation;
+          return 0;
+        }
+
+        /** Map device accel (m/s²) into screen gravity where +y is down. */
+        function deviceAccelToScreen(ax, ay) {
+          const angle = ((screenAngle() % 360) + 360) % 360;
+          // Device frame: +x right, +y toward top of device
+          switch (angle) {
+            case 90:
+              return { x: -ay, y: -ax };
+            case 180:
+              return { x: -ax, y: ay };
+            case 270:
+              return { x: ay, y: ax };
+            default:
+              return { x: ax, y: -ay };
+          }
+        }
+
+        function applyTiltGravity(ax, ay) {
+          const screenG = deviceAccelToScreen(ax, ay);
+          let gx = screenG.x;
+          let gy = screenG.y;
+          const mag = Math.hypot(gx, gy);
+          if (mag < 0.4) return; // ignore tiny noise when flat-ish
+          gx /= mag;
+          gy /= mag;
+          // Smooth toward target so letters don't jitter
+          const targetX = gx * TILT_GRAVITY;
+          const targetY = gy * TILT_GRAVITY;
+          gravX += (targetX - gravX) * 0.22;
+          gravY += (targetY - gravY) * 0.22;
+          tiltEnabled = true;
+        }
+
+        function onDeviceMotion(e) {
+          const ag = e.accelerationIncludingGravity;
+          if (!ag) return;
+          const ax = ag.x;
+          const ay = ag.y;
+          if (ax == null || ay == null) return;
+          lastMotionTs = performance.now();
+          applyTiltGravity(ax, ay);
+        }
+
+        function onDeviceOrientation(e) {
+          // Fallback when DeviceMotion hasn't reported recently
+          if (performance.now() - lastMotionTs < 400) return;
+          if (e.beta == null || e.gamma == null) return;
+          const beta = (e.beta * Math.PI) / 180;
+          const gamma = (e.gamma * Math.PI) / 180;
+          const ax = Math.sin(gamma) * 9.8;
+          const ay = -Math.sin(beta) * 9.8;
+          applyTiltGravity(ax, ay);
+        }
+
+        async function enableTiltSensors() {
+          if (tiltPermissionAsked || !isTouchDevice()) return;
+          if (
+            window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ) {
+            return;
+          }
+          tiltPermissionAsked = true;
+          try {
+            if (
+              typeof DeviceMotionEvent !== "undefined" &&
+              typeof DeviceMotionEvent.requestPermission === "function"
+            ) {
+              const result = await DeviceMotionEvent.requestPermission();
+              if (result !== "granted") return;
+            } else if (
+              typeof DeviceOrientationEvent !== "undefined" &&
+              typeof DeviceOrientationEvent.requestPermission === "function"
+            ) {
+              const result = await DeviceOrientationEvent.requestPermission();
+              if (result !== "granted") return;
+            }
+          } catch (_) {
+            // Permission denied or unsupported — keep default down gravity
+            return;
+          }
+          window.addEventListener("devicemotion", onDeviceMotion, {
+            passive: true,
+          });
+          window.addEventListener("deviceorientation", onDeviceOrientation, {
+            passive: true,
+          });
         }
 
         function configureMetrics() {
@@ -405,6 +521,8 @@
           const idx = els.indexOf(/** @type {HTMLSpanElement} */ (e.target));
           if (idx === -1 || letters[idx].locked) return;
           if (isDragged(idx)) return;
+          // iOS requires a gesture to unlock motion sensors
+          enableTiltSensors();
           const rect = stage.getBoundingClientRect();
           drags.set(e.pointerId, {
             idx,
@@ -464,8 +582,13 @@
             const vy = (l.y - l.py) * DAMPING;
             l.px = l.x;
             l.py = l.y;
-            l.x += vx;
-            l.y += vy + (gravityOn ? GRAVITY : 0);
+            if (gravityOn) {
+              l.x += vx + gravX;
+              l.y += vy + gravY;
+            } else {
+              l.x += vx;
+              l.y += vy;
+            }
           }
 
           for (let iter = 0; iter < ITERATIONS; iter++) {
