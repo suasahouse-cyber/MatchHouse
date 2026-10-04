@@ -1,0 +1,66 @@
+{
+  "name": "Match House",
+  "source": "public/match-house-palette.png",
+  "colors": [
+    {
+      "name": "burgundy",
+      "hex": "#692522",
+      "rgb": [
+        105,
+        37,
+        34
+      ],
+      "role": "primary / mark field"
+    },
+    {
+      "name": "brick",
+      "hex": "#8d2922",
+      "rgb": [
+        141,
+        41,
+        34
+      ],
+      "role": "accent red"
+    },
+    {
+      "name": "cream",
+      "hex": "#ede6d5",
+      "rgb": [
+        237,
+        230,
+        213
+      ],
+      "role": "mark / light text"
+    },
+    {
+      "name": "forest",
+      "hex": "#18231a",
+      "rgb": [
+        24,
+        35,
+        26
+      ],
+      "role": "dark green"
+    },
+    {
+      "name": "olive",
+      "hex": "#4c5235",
+      "rgb": [
+        76,
+        82,
+        53
+      ],
+      "role": "mid green"
+    },
+    {
+      "name": "taupe",
+      "hex": "#ae9c89",
+      "rgb": [
+        174,
+        156,
+        137
+      ],
+      "role": "warm neutral"
+    }
+  ]
+}

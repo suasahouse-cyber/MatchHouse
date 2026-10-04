@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Matchhouse New York — Test</title>
+    <meta
+      name="description"
+      content="Test page for Matchhouse New York landing experiments."
+    />
+    <link rel="icon" href="match-house-mark.png" type="image/png" />
+    <style>
+      :root {
+        --burgundy: #692522;
+        --brick: #8d2922;
+        --cream: #ede6d5;
+        --forest: #18231a;
+        --olive: #4c5235;
+        --taupe: #ae9c89;
+        --ink: #111111;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        background: var(--cream);
+        color: var(--ink);
+        overflow: hidden;
+        touch-action: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      body {
+        font-family: Georgia, "Times New Roman", Times, serif;
+      }
+
+      #stage {
+        position: relative;
+        width: 100%;
+        max-width: 640px;
+        height: 100%;
+        margin: 0 auto;
+        padding: max(24px, env(safe-area-inset-top)) 16px 24px;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+
+      .letter {
+        position: absolute;
+        top: 0;
+        left: 0;
+        will-change: transform;
+        font-family: Georgia, "Times New Roman", Times, serif;
+        font-size: var(--font-size, 18px);
+        line-height: 1;
+        color: var(--ink);
+        pointer-events: none;
+        white-space: pre;
+      }
+
+      .letter.draggable {
+        pointer-events: auto;
+        cursor: grab;
+        z-index: 10;
+        touch-action: none;
+        /* Larger touch target on mobile without shifting glyph */
+        padding: 10px 4px;
+        margin: -10px -4px;
+      }
+
+      .letter.dragging {
+        cursor: grabbing;
+      }
+
+      .hint {
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 20;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.8s ease;
+        color: #666;
+        font-family: Georgia, "Times New Roman", Times, serif;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+      }
+
+      .hint-sub {
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        opacity: 0.75;
+        text-transform: none;
+      }
+
+      .hint svg {
+        display: block;
+        width: 28px;
+        height: 28px;
+        stroke: #666;
+        fill: none;
+      }
+
+      .hint.is-visible {
+        opacity: 1;
+      }
+
+      @media (min-width: 600px) {
+        #stage {
+          padding-left: 24px;
+          padding-right: 24px;
+        }
+
+        .letter {
+          font-size: var(--font-size, 20px);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .hint {
+          transition: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage" aria-label="Matchhouse New York test"></div>
+
+    <!--
+      Pullable text-string physics adapted from
+      Text-String-Animation by Prashant Koirala (MIT License).
+    -->
+    <script>
+      (() => {
+        const TEXT =
+          "Our next backgammon social gathering is October 24, 2026.";
+
+        const stage = document.getElementById("stage");
+        const measureCtx = document.createElement("canvas").getContext("2d");
+        const segmenter = new Intl.Segmenter(undefined, {
+          granularity: "grapheme",
+        });
+
+        const CONSTRAINT_DIST = 1.2;
+        const UNLOCK_THRESHOLD = 1;
+        const ITERATIONS = 12;
+        const DAMPING = 0.97;
+        const GRAVITY = 0.15;
+        const TILT_GRAVITY = 0.18;
+        const FIXED_DT = 1 / 120;
+        const MAX_STEPS = 4;
+
+        // Keep gravity off until the first drag so the date reads clearly
+        let gravityOn = false;
+        // Screen-space gravity: +x right, +y down (defaults to falling down)
+        let gravX = 0;
+        let gravY = GRAVITY;
+        let tiltEnabled = false;
+        let tiltPermissionAsked = false;
+        let lastMotionTs = 0;
+        let fontSize = 18;
+        let lineHeight = 26;
+        let marginX = 16;
+
+        /** @type {Array<{ch:string,w:number,x:number,y:number,ox:number,oy:number,px:number,py:number,readingIdx:number,locked:boolean}>} */
+        let letters = [];
+        /** @type {HTMLSpanElement[]} */
+        let els = [];
+        /** @type {number[]} */
+        let restLengths = [];
+        /** @type {Map<number,{idx:number,offsetX:number,offsetY:number}>} */
+        const drags = new Map();
+
+        const hint = document.createElement("div");
+        hint.className = "hint";
+        hint.innerHTML =
+          '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4v18" stroke-width="1.6" stroke-linecap="round"/><path d="M10 16l6 8 6-8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Drag</span><span class="hint-sub">then tilt</span>';
+        stage.appendChild(hint);
+
+        function isMobile() {
+          return window.matchMedia("(max-width: 600px)").matches;
+        }
+
+        function isTouchDevice() {
+          return (
+            window.matchMedia("(pointer: coarse)").matches ||
+            navigator.maxTouchPoints > 0
+          );
+        }
+
+        function screenAngle() {
+          if (screen.orientation && typeof screen.orientation.angle === "number") {
+            return screen.orientation.angle;
+          }
+          if (typeof window.orientation === "number") return window.orientation;
+          return 0;
+        }
+
+        /** Map device accel (m/s²) into screen gravity where +y is down. */
+        function deviceAccelToScreen(ax, ay) {
+          const angle = ((screenAngle() % 360) + 360) % 360;
+          // Device frame: +x right, +y toward top of device
+          switch (angle) {
+            case 90:
+              return { x: -ay, y: -ax };
+            case 180:
+              return { x: -ax, y: ay };
+            case 270:
+              return { x: ay, y: ax };
+            default:
+              return { x: ax, y: -ay };
+          }
+        }
+
+        function applyTiltGravity(ax, ay) {
+          const screenG = deviceAccelToScreen(ax, ay);
+          let gx = screenG.x;
+          let gy = screenG.y;
+          const mag = Math.hypot(gx, gy);
+          if (mag < 0.4) return; // ignore tiny noise when flat-ish
+          gx /= mag;
+          gy /= mag;
+          // Smooth toward target so letters don't jitter
+          const targetX = gx * TILT_GRAVITY;
+          const targetY = gy * TILT_GRAVITY;
+          gravX += (targetX - gravX) * 0.22;
+          gravY += (targetY - gravY) * 0.22;
+          tiltEnabled = true;
+        }
+
+        function onDeviceMotion(e) {
+          const ag = e.accelerationIncludingGravity;
+          if (!ag) return;
+          const ax = ag.x;
+          const ay = ag.y;
+          if (ax == null || ay == null) return;
+          lastMotionTs = performance.now();
+          applyTiltGravity(ax, ay);
+        }
+
+        function onDeviceOrientation(e) {
+          // Fallback when DeviceMotion hasn't reported recently
+          if (performance.now() - lastMotionTs < 400) return;
+          if (e.beta == null || e.gamma == null) return;
+          const beta = (e.beta * Math.PI) / 180;
+          const gamma = (e.gamma * Math.PI) / 180;
+          const ax = Math.sin(gamma) * 9.8;
+          const ay = -Math.sin(beta) * 9.8;
+          applyTiltGravity(ax, ay);
+        }
+
+        async function enableTiltSensors() {
+          if (tiltPermissionAsked || !isTouchDevice()) return;
+          if (
+            window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ) {
+            return;
+          }
+          tiltPermissionAsked = true;
+          try {
+            if (
+              typeof DeviceMotionEvent !== "undefined" &&
+              typeof DeviceMotionEvent.requestPermission === "function"
+            ) {
+              const result = await DeviceMotionEvent.requestPermission();
+              if (result !== "granted") return;
+            } else if (
+              typeof DeviceOrientationEvent !== "undefined" &&
+              typeof DeviceOrientationEvent.requestPermission === "function"
+            ) {
+              const result = await DeviceOrientationEvent.requestPermission();
+              if (result !== "granted") return;
+            }
+          } catch (_) {
+            // Permission denied or unsupported — keep default down gravity
+            return;
+          }
+          window.addEventListener("devicemotion", onDeviceMotion, {
+            passive: true,
+          });
+          window.addEventListener("deviceorientation", onDeviceOrientation, {
+            passive: true,
+          });
+        }
+
+        function configureMetrics() {
+          fontSize = isMobile() ? 17 : 20;
+          lineHeight = Math.round(fontSize * 1.4);
+          marginX = isMobile() ? 4 : 8;
+          document.documentElement.style.setProperty(
+            "--font-size",
+            fontSize + "px"
+          );
+          measureCtx.font = fontSize + "px Georgia, 'Times New Roman', Times, serif";
+        }
+
+        function getMaxWidth() {
+          return Math.max(160, stage.clientWidth - marginX * 2);
+        }
+
+        function getGraphemes(str) {
+          return [...segmenter.segment(str)].map((s) => s.segment);
+        }
+
+        /**
+         * Layout graphemes into reading-order positions and line buckets.
+         */
+        function layout(maxWidth) {
+          const graphemes = getGraphemes(TEXT);
+          const widths = graphemes.map((g) => measureCtx.measureText(g).width);
+          const positions = [];
+          const lineBuckets = [];
+          let line = [];
+          let x = 0;
+          let lineY = 0;
+
+          for (let gi = 0; gi < graphemes.length; gi++) {
+            const g = graphemes[gi];
+            const w = widths[gi];
+
+            if (g === " " && x > 0) {
+              let wordW = 0;
+              for (
+                let j = gi + 1;
+                j < graphemes.length && graphemes[j] !== " ";
+                j++
+              ) {
+                wordW += widths[j];
+              }
+              if (x + w + wordW > maxWidth) {
+                positions.push({ x: x + marginX, y: lineY, w, ch: g });
+                line.push(gi);
+                lineBuckets.push(line);
+                line = [];
+                x = 0;
+                lineY += lineHeight;
+                continue;
+              }
+            }
+
+            if (x + w > maxWidth && g !== " ") {
+              if (line.length) lineBuckets.push(line);
+              line = [];
+              x = 0;
+              lineY += lineHeight;
+            }
+
+            positions.push({ x: x + marginX, y: lineY, w, ch: g });
+            line.push(gi);
+            x += w;
+          }
+          if (line.length) lineBuckets.push(line);
+
+          const totalHeight = lineY + lineHeight;
+          const available = window.innerHeight - 48;
+          const offsetY = Math.max(
+            8,
+            Math.min(available * 0.18, available - totalHeight)
+          );
+
+          return {
+            graphemes,
+            positions: positions.map((p) => ({
+              x: p.x,
+              y: p.y + offsetY,
+              w: p.w,
+              ch: p.ch,
+            })),
+            lineBuckets,
+          };
+        }
+
+        function buildZigzag(lineBuckets) {
+          const last = lineBuckets.length - 1;
+          const needFlip = last % 2 === 1;
+          const order = [];
+          for (let li = 0; li < lineBuckets.length; li++) {
+            const reversed = needFlip ? li % 2 === 0 : li % 2 === 1;
+            if (reversed) order.push(...[...lineBuckets[li]].reverse());
+            else order.push(...lineBuckets[li]);
+          }
+          return order;
+        }
+
+        function buildSimulation() {
+          configureMetrics();
+          const { graphemes, positions, lineBuckets } = layout(getMaxWidth());
+          const stringOrder = buildZigzag(lineBuckets);
+
+          // Clear old letters (keep hint)
+          for (const el of els) el.remove();
+          els = [];
+          letters = stringOrder.map((ri) => {
+            const p = positions[ri];
+            return {
+              ch: graphemes[ri],
+              w: p.w,
+              x: p.x,
+              y: p.y,
+              ox: p.x,
+              oy: p.y,
+              px: p.x,
+              py: p.y,
+              readingIdx: ri,
+              locked: true,
+            };
+          });
+
+          for (const l of letters) {
+            const span = document.createElement("span");
+            span.className = "letter";
+            span.textContent = l.ch === " " ? "\u00a0" : l.ch;
+            stage.appendChild(span);
+            els.push(span);
+          }
+
+          restLengths = [];
+          for (let i = 0; i < letters.length - 1; i++) {
+            const a = letters[i];
+            const b = letters[i + 1];
+            const dist = Math.hypot(
+              b.ox + b.w / 2 - (a.ox + a.w / 2),
+              b.oy + lineHeight / 2 - (a.oy + lineHeight / 2)
+            );
+            restLengths.push(dist * CONSTRAINT_DIST);
+          }
+
+          // Only free the final glyph as a pull handle so "October 24, 2026"
+          // stays locked and readable until the visitor drags.
+          const lastIdx = letters.length - 1;
+          if (lastIdx >= 0) {
+            letters[lastIdx].locked = false;
+            els[lastIdx].classList.add("draggable");
+          }
+
+          positionHint();
+          hint.classList.add("is-visible");
+        }
+
+        function positionHint() {
+          if (!letters.length) return;
+          const last = letters[letters.length - 1];
+          hint.style.transform = `translate(${last.ox - 8}px, ${
+            last.oy + lineHeight + 4
+          }px)`;
+        }
+
+        function isDragged(idx) {
+          for (const d of drags.values()) if (d.idx === idx) return true;
+          return false;
+        }
+
+        stage.addEventListener("pointerdown", (e) => {
+          const idx = els.indexOf(/** @type {HTMLSpanElement} */ (e.target));
+          if (idx === -1 || letters[idx].locked) return;
+          if (isDragged(idx)) return;
+          // iOS requires a gesture to unlock motion sensors
+          enableTiltSensors();
+          gravityOn = true;
+          const rect = stage.getBoundingClientRect();
+          drags.set(e.pointerId, {
+            idx,
+            offsetX: e.clientX - rect.left - letters[idx].x,
+            offsetY: e.clientY - rect.top - letters[idx].y,
+          });
+          els[idx].classList.add("dragging");
+          e.target.setPointerCapture(e.pointerId);
+          e.preventDefault();
+        });
+
+        window.addEventListener(
+          "pointermove",
+          (e) => {
+            const d = drags.get(e.pointerId);
+            if (!d) return;
+            const rect = stage.getBoundingClientRect();
+            const l = letters[d.idx];
+            l.x = e.clientX - rect.left - d.offsetX;
+            l.y = e.clientY - rect.top - d.offsetY;
+            l.px = l.x;
+            l.py = l.y;
+            l.locked = false;
+          },
+          { passive: false }
+        );
+
+        function endDrag(e) {
+          const d = drags.get(e.pointerId);
+          if (!d) return;
+          els[d.idx].classList.remove("dragging");
+          drags.delete(e.pointerId);
+        }
+        window.addEventListener("pointerup", endDrag);
+        window.addEventListener("pointercancel", endDrag);
+
+        function simulate() {
+          for (let i = letters.length - 2; i >= 0; i--) {
+            if (letters[i].locked && !letters[i + 1].locked) {
+              const a = letters[i];
+              const b = letters[i + 1];
+              const dx = b.x + b.w / 2 - (a.ox + a.w / 2);
+              const dy = b.y + lineHeight / 2 - (a.oy + lineHeight / 2);
+              if (Math.hypot(dx, dy) > restLengths[i] + UNLOCK_THRESHOLD) {
+                a.locked = false;
+                a.px = a.x;
+                a.py = a.y;
+                hint.classList.remove("is-visible");
+              }
+            }
+          }
+
+          for (let i = 0; i < letters.length; i++) {
+            const l = letters[i];
+            if (l.locked || isDragged(i)) continue;
+            const vx = (l.x - l.px) * DAMPING;
+            const vy = (l.y - l.py) * DAMPING;
+            l.px = l.x;
+            l.py = l.y;
+            if (gravityOn) {
+              l.x += vx + gravX;
+              l.y += vy + gravY;
+            } else {
+              l.x += vx;
+              l.y += vy;
+            }
+          }
+
+          for (let iter = 0; iter < ITERATIONS; iter++) {
+            for (let i = 0; i < letters.length - 1; i++) {
+              const a = letters[i];
+              const b = letters[i + 1];
+              if (a.locked && b.locked) continue;
+              const ax = a.x + a.w / 2;
+              const ay = a.y + lineHeight / 2;
+              const bx = b.x + b.w / 2;
+              const by = b.y + lineHeight / 2;
+              const dx = bx - ax;
+              const dy = by - ay;
+              const dist = Math.hypot(dx, dy) || 0.001;
+              const diff = (dist - restLengths[i]) / dist;
+              const aFixed = a.locked || isDragged(i);
+              const bFixed = b.locked || isDragged(i + 1);
+              if (aFixed && !bFixed) {
+                b.x -= dx * diff;
+                b.y -= dy * diff;
+              } else if (!aFixed && bFixed) {
+                a.x += dx * diff;
+                a.y += dy * diff;
+              } else if (!aFixed && !bFixed) {
+                a.x += dx * diff * 0.5;
+                a.y += dy * diff * 0.5;
+                b.x -= dx * diff * 0.5;
+                b.y -= dy * diff * 0.5;
+              }
+            }
+          }
+
+          const RADIUS = isMobile() ? 8 : 7;
+          for (let i = 0; i < letters.length; i++) {
+            if (letters[i].locked) continue;
+            const a = letters[i];
+            const acx = a.x + a.w / 2;
+            const acy = a.y + lineHeight / 2;
+            for (let j = i + 1; j < letters.length; j++) {
+              if (letters[j].locked) continue;
+              if (Math.abs(i - j) === 1) continue;
+              const b = letters[j];
+              const bcx = b.x + b.w / 2;
+              const bcy = b.y + lineHeight / 2;
+              const dx = bcx - acx;
+              const dy = bcy - acy;
+              const dist = Math.hypot(dx, dy) || 0.001;
+              if (dist < RADIUS * 2) {
+                const overlap = ((RADIUS * 2 - dist) / dist) * 0.5;
+                if (isDragged(i)) {
+                  b.x += dx * overlap;
+                  b.y += dy * overlap;
+                } else if (isDragged(j)) {
+                  a.x -= dx * overlap;
+                  a.y -= dy * overlap;
+                } else {
+                  a.x -= dx * overlap;
+                  a.y -= dy * overlap;
+                  b.x += dx * overlap;
+                  b.y += dy * overlap;
+                }
+              }
+            }
+          }
+
+          const cRect = stage.getBoundingClientRect();
+          const minX = -cRect.left + 4;
+          const minY = -cRect.top + 4;
+          const maxX = window.innerWidth - cRect.left - 4;
+          const maxY = window.innerHeight - cRect.top - 4;
+          const bounce = 0.4;
+          for (let i = 0; i < letters.length; i++) {
+            const l = letters[i];
+            if (l.locked || isDragged(i)) continue;
+            if (l.x < minX) {
+              l.x = minX;
+              l.px = l.x + (l.x - l.px) * bounce;
+            }
+            if (l.x + l.w > maxX) {
+              l.x = maxX - l.w;
+              l.px = l.x + (l.x - l.px) * bounce;
+            }
+            if (l.y < minY) {
+              l.y = minY;
+              l.py = l.y + (l.y - l.py) * bounce;
+            }
+            if (l.y + lineHeight > maxY) {
+              l.y = maxY - lineHeight;
+              l.py = l.y + (l.y - l.py) * bounce;
+            }
+          }
+        }
+
+        let accumulator = 0;
+        let lastTime = -1;
+
+        function render(now) {
+          if (lastTime < 0) {
+            lastTime = now;
+            requestAnimationFrame(render);
+            return;
+          }
+          const dt = Math.min((now - lastTime) / 1000, MAX_STEPS * FIXED_DT);
+          lastTime = now;
+          accumulator += dt;
+          while (accumulator >= FIXED_DT) {
+            simulate();
+            accumulator -= FIXED_DT;
+          }
+          for (let i = 0; i < letters.length; i++) {
+            if (!letters[i].locked) els[i].classList.add("draggable");
+            els[i].style.transform = `translate(${letters[i].x}px, ${letters[i].y}px)`;
+          }
+          requestAnimationFrame(render);
+        }
+
+        let resizeTimer = 0;
+        window.addEventListener("resize", () => {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(() => {
+            // Rebuild only if nothing has been pulled yet
+            const pulled = letters.some((l) => !l.locked);
+            if (!pulled) {
+              buildSimulation();
+              lastTime = -1;
+            } else {
+              const { positions } = layout(getMaxWidth());
+              for (let i = 0; i < letters.length; i++) {
+                const np = positions[letters[i].readingIdx];
+                if (!np) continue;
+                letters[i].ox = np.x;
+                letters[i].oy = np.y;
+                if (letters[i].locked) {
+                  letters[i].x = np.x;
+                  letters[i].y = np.y;
+                  letters[i].px = np.x;
+                  letters[i].py = np.y;
+                }
+              }
+              positionHint();
+            }
+          }, 120);
+        });
+
+        buildSimulation();
+        requestAnimationFrame(render);
+      })();
+    </script>
+  </body>
+</html>
