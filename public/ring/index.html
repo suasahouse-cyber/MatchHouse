@@ -124,9 +124,10 @@
     <script>
       (() => {
         const FRAME_COUNT = 24;
+        // Absolute paths so /ring (no trailing slash) still loads frames
         const FRAME_SRCS = Array.from(
           { length: FRAME_COUNT },
-          (_, i) => `frames/${String(i + 1).padStart(2, "0")}.webp`
+          (_, i) => `/ring/frames/${String(i + 1).padStart(2, "0")}.webp`
         );
 
         const viewer = document.getElementById("viewer");
