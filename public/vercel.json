@@ -1,6 +1,10 @@
 {
-  "cleanUrls": true,
   "rewrites": [
-    { "source": "/", "destination": "/index.html" }
+    { "source": "/test", "destination": "/test.html" },
+    { "source": "/test/", "destination": "/test.html" },
+    { "source": "/ring", "destination": "/ring.html" },
+    { "source": "/ring/", "destination": "/ring.html" },
+    { "source": "/mark", "destination": "/mark.html" },
+    { "source": "/first-adopters", "destination": "/first-adopters.html" }
   ]
 }
