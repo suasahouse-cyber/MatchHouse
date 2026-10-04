@@ -9,14 +9,13 @@
     <title>Match House Ring</title>
     <meta
       name="description"
-      content="Match House signet ring — slow rotation."
+      content="Match House signet ring — drag to rotate."
     />
-    <link rel="icon" href="/match-house-mark.png" type="image/png" />
+    <link rel="icon" href="../match-house-mark.png" type="image/png" />
     <style>
       :root {
         --cream: #ede6d5;
-        --ink: #111111;
-        --frame-ms: 1100;
+        --ink: #1a1a1a;
       }
 
       * {
@@ -32,116 +31,308 @@
         background: var(--cream);
         color: var(--ink);
         overflow: hidden;
+        touch-action: none;
       }
 
-      body {
-        font-family: Georgia, "Times New Roman", Times, serif;
-      }
-
-      .stage {
-        position: relative;
+      canvas {
+        display: block;
         width: 100%;
         height: 100%;
-        display: grid;
-        place-items: center;
-        padding: max(16px, env(safe-area-inset-top)) 16px
-          max(16px, env(safe-area-inset-bottom));
+        cursor: grab;
       }
 
-      .ring {
-        position: relative;
-        width: min(82vw, 560px);
-        aspect-ratio: 1482 / 1061;
-        user-select: none;
-        -webkit-user-select: none;
+      canvas.is-dragging {
+        cursor: grabbing;
       }
 
-      .ring img {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        opacity: 0;
-        transition: opacity 280ms ease;
+      .hint {
+        position: fixed;
+        left: 50%;
+        bottom: max(20px, env(safe-area-inset-bottom));
+        transform: translateX(-50%);
+        z-index: 2;
         pointer-events: none;
+        font-family: Georgia, "Times New Roman", Times, serif;
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: rgba(26, 26, 26, 0.45);
+        transition: opacity 0.8s ease;
       }
 
-      .ring img.is-active {
-        opacity: 1;
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        .ring img {
-          transition: none;
-        }
+      .hint.is-hidden {
+        opacity: 0;
       }
     </style>
   </head>
   <body>
-    <main class="stage">
-      <div
-        class="ring"
-        id="ring"
-        role="img"
-        aria-label="Match House signet ring slowly rotating"
-      ></div>
-    </main>
-    <script>
-      (() => {
-        // Turntable order: front → right → side → back → through → left-front
-        const FRAMES = [
-          "/ring/frames/04.jpg",
-          "/ring/frames/05.jpg",
-          "/ring/frames/02.jpg",
-          "/ring/frames/01.jpg",
-          "/ring/frames/06.jpg",
-          "/ring/frames/03.jpg",
-        ];
+    <div class="hint" id="hint">Drag to rotate</div>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from "three";
 
-        const ring = document.getElementById("ring");
-        const reduceMotion = window.matchMedia(
-          "(prefers-reduced-motion: reduce)"
-        ).matches;
-        const images = FRAMES.map((src, i) => {
-          const img = document.createElement("img");
-          img.src = src;
-          img.alt = "";
-          img.decoding = "async";
-          if (i === 0) {
-            img.loading = "eager";
-            img.classList.add("is-active");
-          } else {
-            img.loading = "eager";
-          }
-          ring.appendChild(img);
-          return img;
+      const CREAM = 0xede6d5;
+      const METAL = 0xc4a574;
+      const METAL_DARK = 0x8a6a3e;
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(CREAM);
+
+      const camera = new THREE.PerspectiveCamera(
+        35,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        100
+      );
+      camera.position.set(0, 0.15, 4.2);
+
+      const renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: false,
+      });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      document.body.appendChild(renderer.domElement);
+
+      // Soft studio lighting on cream — no black void
+      scene.add(new THREE.AmbientLight(0xfff4e6, 0.85));
+      const key = new THREE.DirectionalLight(0xffffff, 1.15);
+      key.position.set(2.4, 3.2, 2.8);
+      scene.add(key);
+      const fill = new THREE.DirectionalLight(0xffe8c8, 0.55);
+      fill.position.set(-2.5, 1.2, 1.5);
+      scene.add(fill);
+      const rim = new THREE.DirectionalLight(0xffffff, 0.35);
+      rim.position.set(0, 1.5, -3);
+      scene.add(rim);
+
+      function makeFaceTexture() {
+        const size = 1024;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+
+        // Brushed metal plate
+        const grad = ctx.createLinearGradient(0, 0, size, size);
+        grad.addColorStop(0, "#d8b88a");
+        grad.addColorStop(0.45, "#c4a574");
+        grad.addColorStop(1, "#a88452");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, size, size);
+
+        // Fine grain
+        for (let i = 0; i < 14000; i++) {
+          const x = Math.random() * size;
+          const y = Math.random() * size;
+          const a = 0.015 + Math.random() * 0.04;
+          ctx.fillStyle =
+            Math.random() > 0.5
+              ? `rgba(255,255,255,${a})`
+              : `rgba(40,25,10,${a})`;
+          ctx.fillRect(x, y, 1.2, 1.2);
+        }
+
+        // Recessed letter field
+        const padX = size * 0.12;
+        const padY = size * 0.18;
+        const fieldW = size - padX * 2;
+        const fieldH = size - padY * 2;
+        ctx.fillStyle = "#1a1512";
+        roundRect(ctx, padX, padY, fieldW, fieldH, 36);
+        ctx.fill();
+
+        // Inner grain in recess
+        ctx.save();
+        roundRect(ctx, padX, padY, fieldW, fieldH, 36);
+        ctx.clip();
+        for (let i = 0; i < 8000; i++) {
+          ctx.fillStyle = `rgba(90,80,70,${Math.random() * 0.08})`;
+          ctx.fillRect(
+            padX + Math.random() * fieldW,
+            padY + Math.random() * fieldH,
+            2,
+            2
+          );
+        }
+        ctx.restore();
+
+        // Raised metal letters (drawn as strokes of plate color)
+        ctx.fillStyle = "#c9ad7d";
+        ctx.strokeStyle = "#8d6b3f";
+        ctx.lineWidth = 4;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = `700 ${size * 0.22}px Arial Black, Impact, sans-serif`;
+        const cx = size / 2;
+        ctx.strokeText("MATCH", cx, size * 0.4);
+        ctx.fillText("MATCH", cx, size * 0.4);
+        ctx.strokeText("HOUSE", cx, size * 0.62);
+        ctx.fillText("HOUSE", cx, size * 0.62);
+
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 8;
+        return tex;
+      }
+
+      function roundRect(ctx, x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+      }
+
+      function metalMaterial(opts = {}) {
+        return new THREE.MeshStandardMaterial({
+          color: opts.color ?? METAL,
+          metalness: 0.85,
+          roughness: 0.42,
+          envMapIntensity: 0.8,
+          ...opts,
         });
+      }
 
-        let index = 0;
-        let timer = 0;
+      const ring = new THREE.Group();
+      scene.add(ring);
 
-        function show(next) {
-          images[index].classList.remove("is-active");
-          index = (next + images.length) % images.length;
-          images[index].classList.add("is-active");
+      const faceTex = makeFaceTexture();
+      const faceMat = metalMaterial({ map: faceTex, roughness: 0.48 });
+      const sideMat = metalMaterial({ color: METAL_DARK, roughness: 0.5 });
+      const bandMat = metalMaterial({ roughness: 0.45 });
+
+      // Signet head — rounded box
+      const headGeo = new THREE.BoxGeometry(1.55, 0.95, 0.38, 2, 2, 2);
+      // Soften corners slightly via scale on a sphere blend isn't available —
+      // use slightly beveled look with edge ring later.
+      const head = new THREE.Mesh(headGeo, [
+        sideMat,
+        sideMat,
+        sideMat,
+        sideMat,
+        faceMat, // +Z front
+        sideMat, // -Z back
+      ]);
+      head.position.set(0, 0.55, 0);
+      ring.add(head);
+
+      // Thin bezel frame around face
+      const bezel = new THREE.Mesh(
+        new THREE.BoxGeometry(1.62, 1.02, 0.08),
+        metalMaterial({ color: 0xb8945f, roughness: 0.4 })
+      );
+      bezel.position.set(0, 0.55, 0.16);
+      ring.add(bezel);
+
+      // Band — torus, tipped so it sits under the head
+      const band = new THREE.Mesh(
+        new THREE.TorusGeometry(0.72, 0.16, 24, 72),
+        bandMat
+      );
+      band.rotation.x = Math.PI / 2;
+      band.position.y = -0.05;
+      ring.add(band);
+
+      // Shoulders connecting head to band
+      const shoulderGeo = new THREE.CylinderGeometry(0.18, 0.22, 0.55, 20);
+      const shoulderL = new THREE.Mesh(shoulderGeo, bandMat);
+      shoulderL.position.set(-0.55, 0.22, 0);
+      shoulderL.rotation.z = 0.35;
+      ring.add(shoulderL);
+      const shoulderR = new THREE.Mesh(shoulderGeo, bandMat);
+      shoulderR.position.set(0.55, 0.22, 0);
+      shoulderR.rotation.z = -0.35;
+      ring.add(shoulderR);
+
+      // Center the whole piece
+      ring.position.y = 0.05;
+      ring.rotation.x = -0.12;
+
+      // Interaction — drag to orbit (OpenProcessing-like feel)
+      const hint = document.getElementById("hint");
+      let dragging = false;
+      let lastX = 0;
+      let lastY = 0;
+      let velY = 0;
+      let velX = 0;
+      let rotY = 0.35;
+      let rotX = -0.12;
+      const reduceMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)"
+      ).matches;
+
+      function onPointerDown(e) {
+        dragging = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        velY = 0;
+        velX = 0;
+        renderer.domElement.classList.add("is-dragging");
+        hint.classList.add("is-hidden");
+        renderer.domElement.setPointerCapture?.(e.pointerId);
+      }
+
+      function onPointerMove(e) {
+        if (!dragging) return;
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        // Slow, heavy feel — not twitchy
+        velY = dx * 0.0055;
+        velX = dy * 0.0035;
+        rotY += velY;
+        rotX += velX;
+        rotX = Math.max(-1.1, Math.min(0.85, rotX));
+      }
+
+      function onPointerUp(e) {
+        dragging = false;
+        renderer.domElement.classList.remove("is-dragging");
+        try {
+          renderer.domElement.releasePointerCapture?.(e.pointerId);
+        } catch (_) {}
+      }
+
+      renderer.domElement.addEventListener("pointerdown", onPointerDown);
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("pointercancel", onPointerUp);
+
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      function frame() {
+        if (!dragging && !reduceMotion) {
+          // Gentle inertia after release
+          rotY += velY;
+          rotX += velX;
+          rotX = Math.max(-1.1, Math.min(0.85, rotX));
+          velY *= 0.92;
+          velX *= 0.92;
+          if (Math.abs(velY) < 0.00005) velY = 0;
+          if (Math.abs(velX) < 0.00005) velX = 0;
         }
-
-        function tick() {
-          show(index + 1);
-        }
-
-        if (!reduceMotion) {
-          const rootStyles = getComputedStyle(document.documentElement);
-          const frameMs =
-            parseFloat(rootStyles.getPropertyValue("--frame-ms")) || 900;
-          timer = window.setInterval(tick, frameMs);
-        }
-
-        window.addEventListener("pagehide", () => {
-          if (timer) window.clearInterval(timer);
-        });
-      })();
+        ring.rotation.y = rotY;
+        ring.rotation.x = rotX;
+        renderer.render(scene, camera);
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
     </script>
   </body>
 </html>
