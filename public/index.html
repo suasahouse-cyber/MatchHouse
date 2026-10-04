@@ -21,8 +21,6 @@
         --olive: #4c5235;
         --taupe: #ae9c89;
         --ink: #111111;
-        --logo-h: clamp(40px, 10vw, 56px);
-        --top-pad: calc(var(--logo-h) + 28px);
       }
 
       * {
@@ -46,31 +44,13 @@
         font-family: Georgia, "Times New Roman", Times, serif;
       }
 
-      .brand-link {
-        position: fixed;
-        top: max(12px, env(safe-area-inset-top));
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 40;
-        display: block;
-        line-height: 0;
-        -webkit-tap-highlight-color: transparent;
-      }
-
-      .brand {
-        display: block;
-        height: var(--logo-h);
-        width: auto;
-        user-select: none;
-      }
-
       #stage {
         position: relative;
         width: 100%;
         max-width: 640px;
         height: 100%;
         margin: 0 auto;
-        padding: var(--top-pad) 16px 24px;
+        padding: max(24px, env(safe-area-inset-top)) 16px 24px;
         user-select: none;
         -webkit-user-select: none;
       }
@@ -159,15 +139,6 @@
     </style>
   </head>
   <body>
-    <div class="brand-link" aria-label="Match House">
-      <img
-        class="brand"
-        src="match-house-mark-compact.png"
-        alt="Match House"
-        width="325"
-        height="325"
-      />
-    </div>
     <div id="stage" aria-label="Matchhouse New York"></div>
 
     <!--
@@ -394,17 +365,12 @@
           }
           if (line.length) lineBuckets.push(line);
 
-          const brand = document.querySelector(".brand");
-          const brandBottom = brand
-            ? brand.getBoundingClientRect().bottom + 12
-            : 64;
-          const stageTop = stage.getBoundingClientRect().top;
-          const topPad = Math.max(0, brandBottom - stageTop);
           const totalHeight = lineY + lineHeight;
-          const available =
-            window.innerHeight - brandBottom - 24;
-          const offsetY =
-            topPad + Math.max(8, Math.min(available * 0.18, available - totalHeight));
+          const available = window.innerHeight - 48;
+          const offsetY = Math.max(
+            8,
+            Math.min(available * 0.18, available - totalHeight)
+          );
 
           return {
             graphemes,
