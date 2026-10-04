@@ -34,21 +34,40 @@
         touch-action: none;
       }
 
-      canvas {
+      .stage {
+        width: 100%;
+        height: 100%;
+        display: grid;
+        place-items: center;
+        padding: max(16px, env(safe-area-inset-top)) 16px
+          max(28px, env(safe-area-inset-bottom));
+      }
+
+      .viewer {
+        position: relative;
+        width: min(86vw, 640px);
+        aspect-ratio: 1000 / 716;
+        cursor: grab;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;
+      }
+
+      .viewer.is-dragging {
+        cursor: grabbing;
+      }
+
+      .viewer canvas {
         display: block;
         width: 100%;
         height: 100%;
-        cursor: grab;
-      }
-
-      canvas.is-dragging {
-        cursor: grabbing;
+        background: var(--cream);
       }
 
       .hint {
         position: fixed;
         left: 50%;
-        bottom: max(20px, env(safe-area-inset-bottom));
+        bottom: max(18px, env(safe-area-inset-bottom));
         transform: translateX(-50%);
         z-index: 2;
         pointer-events: none;
@@ -57,7 +76,7 @@
         letter-spacing: 0.12em;
         text-transform: uppercase;
         color: rgba(26, 26, 26, 0.45);
-        transition: opacity 0.8s ease;
+        transition: opacity 0.7s ease;
       }
 
       .hint.is-hidden {
@@ -66,273 +85,149 @@
     </style>
   </head>
   <body>
+    <main class="stage">
+      <div
+        class="viewer"
+        id="viewer"
+        role="img"
+        aria-label="Match House signet ring. Drag to rotate."
+      >
+        <canvas id="canvas" width="1000" height="716"></canvas>
+      </div>
+    </main>
     <div class="hint" id="hint">Drag to rotate</div>
-    <script type="importmap">
-      {
-        "imports": {
-          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
-          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
-        }
-      }
-    </script>
-    <script type="module">
-      import * as THREE from "three";
+    <script>
+      (() => {
+        // Turntable order around the ring (one continuous object)
+        const FRAME_SRCS = [
+          "frames/04.jpg", // front
+          "frames/05.jpg", // front-right
+          "frames/02.jpg", // side
+          "frames/01.jpg", // back
+          "frames/06.jpg", // back/through
+          "frames/03.jpg", // front-left
+        ];
 
-      const CREAM = 0xede6d5;
-      const METAL = 0xc4a574;
-      const METAL_DARK = 0x8a6a3e;
-
-      const scene = new THREE.Scene();
-      scene.background = new THREE.Color(CREAM);
-
-      const camera = new THREE.PerspectiveCamera(
-        35,
-        window.innerWidth / window.innerHeight,
-        0.1,
-        100
-      );
-      camera.position.set(0, 0.15, 4.2);
-
-      const renderer = new THREE.WebGLRenderer({
-        antialias: true,
-        alpha: false,
-      });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.outputColorSpace = THREE.SRGBColorSpace;
-      document.body.appendChild(renderer.domElement);
-
-      // Soft studio lighting on cream — no black void
-      scene.add(new THREE.AmbientLight(0xfff4e6, 0.85));
-      const key = new THREE.DirectionalLight(0xffffff, 1.15);
-      key.position.set(2.4, 3.2, 2.8);
-      scene.add(key);
-      const fill = new THREE.DirectionalLight(0xffe8c8, 0.55);
-      fill.position.set(-2.5, 1.2, 1.5);
-      scene.add(fill);
-      const rim = new THREE.DirectionalLight(0xffffff, 0.35);
-      rim.position.set(0, 1.5, -3);
-      scene.add(rim);
-
-      function makeFaceTexture() {
-        const size = 1024;
-        const canvas = document.createElement("canvas");
-        canvas.width = size;
-        canvas.height = size;
+        const viewer = document.getElementById("viewer");
+        const canvas = document.getElementById("canvas");
         const ctx = canvas.getContext("2d");
+        const hint = document.getElementById("hint");
+        const reduceMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)"
+        ).matches;
 
-        // Brushed metal plate
-        const grad = ctx.createLinearGradient(0, 0, size, size);
-        grad.addColorStop(0, "#d8b88a");
-        grad.addColorStop(0.45, "#c4a574");
-        grad.addColorStop(1, "#a88452");
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, size, size);
+        /** @type {HTMLImageElement[]} */
+        const frames = [];
+        let ready = 0;
+        let angle = 0; // 0..1 around the turntable
+        let vel = 0;
+        let dragging = false;
+        let lastX = 0;
+        let lastTs = 0;
+        let drawnIndex = -1;
 
-        // Fine grain
-        for (let i = 0; i < 14000; i++) {
-          const x = Math.random() * size;
-          const y = Math.random() * size;
-          const a = 0.015 + Math.random() * 0.04;
-          ctx.fillStyle =
-            Math.random() > 0.5
-              ? `rgba(255,255,255,${a})`
-              : `rgba(40,25,10,${a})`;
-          ctx.fillRect(x, y, 1.2, 1.2);
-        }
-
-        // Recessed letter field
-        const padX = size * 0.12;
-        const padY = size * 0.18;
-        const fieldW = size - padX * 2;
-        const fieldH = size - padY * 2;
-        ctx.fillStyle = "#1a1512";
-        roundRect(ctx, padX, padY, fieldW, fieldH, 36);
-        ctx.fill();
-
-        // Inner grain in recess
-        ctx.save();
-        roundRect(ctx, padX, padY, fieldW, fieldH, 36);
-        ctx.clip();
-        for (let i = 0; i < 8000; i++) {
-          ctx.fillStyle = `rgba(90,80,70,${Math.random() * 0.08})`;
-          ctx.fillRect(
-            padX + Math.random() * fieldW,
-            padY + Math.random() * fieldH,
-            2,
-            2
+        function loadFrames() {
+          return Promise.all(
+            FRAME_SRCS.map(
+              (src, i) =>
+                new Promise((resolve, reject) => {
+                  const img = new Image();
+                  img.decoding = "async";
+                  img.onload = () => {
+                    frames[i] = img;
+                    ready += 1;
+                    resolve(img);
+                  };
+                  img.onerror = reject;
+                  img.src = src;
+                })
+            )
           );
         }
-        ctx.restore();
 
-        // Raised metal letters (drawn as strokes of plate color)
-        ctx.fillStyle = "#c9ad7d";
-        ctx.strokeStyle = "#8d6b3f";
-        ctx.lineWidth = 4;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.font = `700 ${size * 0.22}px Arial Black, Impact, sans-serif`;
-        const cx = size / 2;
-        ctx.strokeText("MATCH", cx, size * 0.4);
-        ctx.fillText("MATCH", cx, size * 0.4);
-        ctx.strokeText("HOUSE", cx, size * 0.62);
-        ctx.fillText("HOUSE", cx, size * 0.62);
-
-        const tex = new THREE.CanvasTexture(canvas);
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.anisotropy = 8;
-        return tex;
-      }
-
-      function roundRect(ctx, x, y, w, h, r) {
-        ctx.beginPath();
-        ctx.moveTo(x + r, y);
-        ctx.arcTo(x + w, y, x + w, y + h, r);
-        ctx.arcTo(x + w, y + h, x, y + h, r);
-        ctx.arcTo(x, y + h, x, y, r);
-        ctx.arcTo(x, y, x + w, y, r);
-        ctx.closePath();
-      }
-
-      function metalMaterial(opts = {}) {
-        return new THREE.MeshStandardMaterial({
-          color: opts.color ?? METAL,
-          metalness: 0.85,
-          roughness: 0.42,
-          envMapIntensity: 0.8,
-          ...opts,
-        });
-      }
-
-      const ring = new THREE.Group();
-      scene.add(ring);
-
-      const faceTex = makeFaceTexture();
-      const faceMat = metalMaterial({ map: faceTex, roughness: 0.48 });
-      const sideMat = metalMaterial({ color: METAL_DARK, roughness: 0.5 });
-      const bandMat = metalMaterial({ roughness: 0.45 });
-
-      // Signet head — rounded box
-      const headGeo = new THREE.BoxGeometry(1.55, 0.95, 0.38, 2, 2, 2);
-      // Soften corners slightly via scale on a sphere blend isn't available —
-      // use slightly beveled look with edge ring later.
-      const head = new THREE.Mesh(headGeo, [
-        sideMat,
-        sideMat,
-        sideMat,
-        sideMat,
-        faceMat, // +Z front
-        sideMat, // -Z back
-      ]);
-      head.position.set(0, 0.55, 0);
-      ring.add(head);
-
-      // Thin bezel frame around face
-      const bezel = new THREE.Mesh(
-        new THREE.BoxGeometry(1.62, 1.02, 0.08),
-        metalMaterial({ color: 0xb8945f, roughness: 0.4 })
-      );
-      bezel.position.set(0, 0.55, 0.16);
-      ring.add(bezel);
-
-      // Band — torus, tipped so it sits under the head
-      const band = new THREE.Mesh(
-        new THREE.TorusGeometry(0.72, 0.16, 24, 72),
-        bandMat
-      );
-      band.rotation.x = Math.PI / 2;
-      band.position.y = -0.05;
-      ring.add(band);
-
-      // Shoulders connecting head to band
-      const shoulderGeo = new THREE.CylinderGeometry(0.18, 0.22, 0.55, 20);
-      const shoulderL = new THREE.Mesh(shoulderGeo, bandMat);
-      shoulderL.position.set(-0.55, 0.22, 0);
-      shoulderL.rotation.z = 0.35;
-      ring.add(shoulderL);
-      const shoulderR = new THREE.Mesh(shoulderGeo, bandMat);
-      shoulderR.position.set(0.55, 0.22, 0);
-      shoulderR.rotation.z = -0.35;
-      ring.add(shoulderR);
-
-      // Center the whole piece
-      ring.position.y = 0.05;
-      ring.rotation.x = -0.12;
-
-      // Interaction — drag to orbit (OpenProcessing-like feel)
-      const hint = document.getElementById("hint");
-      let dragging = false;
-      let lastX = 0;
-      let lastY = 0;
-      let velY = 0;
-      let velX = 0;
-      let rotY = 0.35;
-      let rotX = -0.12;
-      const reduceMotion = window.matchMedia(
-        "(prefers-reduced-motion: reduce)"
-      ).matches;
-
-      function onPointerDown(e) {
-        dragging = true;
-        lastX = e.clientX;
-        lastY = e.clientY;
-        velY = 0;
-        velX = 0;
-        renderer.domElement.classList.add("is-dragging");
-        hint.classList.add("is-hidden");
-        renderer.domElement.setPointerCapture?.(e.pointerId);
-      }
-
-      function onPointerMove(e) {
-        if (!dragging) return;
-        const dx = e.clientX - lastX;
-        const dy = e.clientY - lastY;
-        lastX = e.clientX;
-        lastY = e.clientY;
-        // Slow, heavy feel — not twitchy
-        velY = dx * 0.0055;
-        velX = dy * 0.0035;
-        rotY += velY;
-        rotX += velX;
-        rotX = Math.max(-1.1, Math.min(0.85, rotX));
-      }
-
-      function onPointerUp(e) {
-        dragging = false;
-        renderer.domElement.classList.remove("is-dragging");
-        try {
-          renderer.domElement.releasePointerCapture?.(e.pointerId);
-        } catch (_) {}
-      }
-
-      renderer.domElement.addEventListener("pointerdown", onPointerDown);
-      window.addEventListener("pointermove", onPointerMove);
-      window.addEventListener("pointerup", onPointerUp);
-      window.addEventListener("pointercancel", onPointerUp);
-
-      window.addEventListener("resize", () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-      });
-
-      function frame() {
-        if (!dragging && !reduceMotion) {
-          // Gentle inertia after release
-          rotY += velY;
-          rotX += velX;
-          rotX = Math.max(-1.1, Math.min(0.85, rotX));
-          velY *= 0.92;
-          velX *= 0.92;
-          if (Math.abs(velY) < 0.00005) velY = 0;
-          if (Math.abs(velX) < 0.00005) velX = 0;
+        function frameIndex() {
+          const n = frames.length;
+          const a = ((angle % 1) + 1) % 1;
+          return Math.min(n - 1, Math.floor(a * n));
         }
-        ring.rotation.y = rotY;
-        ring.rotation.x = rotX;
-        renderer.render(scene, camera);
-        requestAnimationFrame(frame);
-      }
-      requestAnimationFrame(frame);
+
+        function paint() {
+          if (!frames.length || ready < frames.length) return;
+          const i = frameIndex();
+          // Draw only the active frame into one canvas — no stacked fades/flashes
+          if (i === drawnIndex) return;
+          drawnIndex = i;
+          const img = frames[i];
+          ctx.fillStyle = "#ede6d5";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        }
+
+        function forcePaint() {
+          drawnIndex = -1;
+          paint();
+        }
+
+        function onPointerDown(e) {
+          dragging = true;
+          lastX = e.clientX;
+          lastTs = performance.now();
+          vel = 0;
+          viewer.classList.add("is-dragging");
+          hint.classList.add("is-hidden");
+          viewer.setPointerCapture?.(e.pointerId);
+          e.preventDefault();
+        }
+
+        function onPointerMove(e) {
+          if (!dragging) return;
+          const now = performance.now();
+          const dx = e.clientX - lastX;
+          const dt = Math.max(8, now - lastTs);
+          lastX = e.clientX;
+          lastTs = now;
+          // Slow, heavy scrub — one ring turning under the cursor
+          const delta = dx / (viewer.clientWidth * 2.75);
+          angle += delta;
+          vel = delta / (dt / 16.67);
+          forcePaint();
+        }
+
+        function onPointerUp(e) {
+          dragging = false;
+          viewer.classList.remove("is-dragging");
+          try {
+            viewer.releasePointerCapture?.(e.pointerId);
+          } catch (_) {}
+        }
+
+        viewer.addEventListener("pointerdown", onPointerDown);
+        window.addEventListener("pointermove", onPointerMove, {
+          passive: false,
+        });
+        window.addEventListener("pointerup", onPointerUp);
+        window.addEventListener("pointercancel", onPointerUp);
+
+        function tick() {
+          if (!dragging && !reduceMotion && Math.abs(vel) > 0.00015) {
+            angle += vel * 0.016;
+            vel *= 0.9;
+            forcePaint();
+          } else if (!dragging) {
+            vel = 0;
+          }
+          requestAnimationFrame(tick);
+        }
+
+        loadFrames()
+          .then(() => {
+            forcePaint();
+            requestAnimationFrame(tick);
+          })
+          .catch((err) => {
+            console.error(err);
+          });
+      })();
     </script>
   </body>
 </html>
