@@ -165,7 +165,8 @@
         const FIXED_DT = 1 / 120;
         const MAX_STEPS = 4;
 
-        let gravityOn = true;
+        // Keep gravity off until the first drag so the date reads clearly
+        let gravityOn = false;
         // Screen-space gravity: +x right, +y down (defaults to falling down)
         let gravX = 0;
         let gravY = GRAVITY;
@@ -439,11 +440,12 @@
             restLengths.push(dist * CONSTRAINT_DIST);
           }
 
+          // Only free the final glyph as a pull handle so "October 24, 2026"
+          // stays locked and readable until the visitor drags.
           const lastIdx = letters.length - 1;
-          const freeCount = isMobile() ? 8 : 6;
-          for (let i = lastIdx; i > lastIdx - freeCount && i >= 0; i--) {
-            letters[i].locked = false;
-            els[i].classList.add("draggable");
+          if (lastIdx >= 0) {
+            letters[lastIdx].locked = false;
+            els[lastIdx].classList.add("draggable");
           }
 
           positionHint();
@@ -469,6 +471,7 @@
           if (isDragged(idx)) return;
           // iOS requires a gesture to unlock motion sensors
           enableTiltSensors();
+          gravityOn = true;
           const rect = stage.getBoundingClientRect();
           drags.set(e.pointerId, {
             idx,
