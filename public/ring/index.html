@@ -100,12 +100,12 @@
       (() => {
         // Turntable order around the ring (one continuous object)
         const FRAME_SRCS = [
-          "frames/04.jpg", // front
-          "frames/05.jpg", // front-right
-          "frames/02.jpg", // side
-          "frames/01.jpg", // back
-          "frames/06.jpg", // back/through
-          "frames/03.jpg", // front-left
+          "/ring/frames/04.jpg", // front
+          "/ring/frames/05.jpg", // front-right
+          "/ring/frames/02.jpg", // side
+          "/ring/frames/01.jpg", // back
+          "/ring/frames/06.jpg", // back/through
+          "/ring/frames/03.jpg", // front-left
         ];
 
         const viewer = document.getElementById("viewer");
@@ -186,10 +186,10 @@
           const dt = Math.max(8, now - lastTs);
           lastX = e.clientX;
           lastTs = now;
-          // Slow, heavy scrub — one ring turning under the cursor
-          const delta = dx / (viewer.clientWidth * 2.75);
+          // One full turn ≈ ~2.2 viewer widths — slow but clearly responsive
+          const delta = dx / (viewer.clientWidth * 2.2);
           angle += delta;
-          vel = delta / (dt / 16.67);
+          vel = (dx / viewer.clientWidth) * 0.08;
           forcePaint();
         }
 
