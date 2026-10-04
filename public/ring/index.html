@@ -158,9 +158,15 @@
           if (i === drawnIndex) return;
           drawnIndex = i;
           const img = frames[i];
+          const cw = canvas.width;
+          const ch = canvas.height;
           ctx.fillStyle = "#ede6d5";
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          ctx.fillRect(0, 0, cw, ch);
+          // Contain-fit the photo in the cream canvas
+          const scale = Math.min(cw / img.naturalWidth, ch / img.naturalHeight);
+          const w = img.naturalWidth * scale;
+          const h = img.naturalHeight * scale;
+          ctx.drawImage(img, (cw - w) / 2, (ch - h) / 2, w, h);
         }
 
         function forcePaint() {
@@ -201,12 +207,31 @@
           } catch (_) {}
         }
 
-        viewer.addEventListener("pointerdown", onPointerDown);
-        window.addEventListener("pointermove", onPointerMove, {
-          passive: false,
-        });
-        window.addEventListener("pointerup", onPointerUp);
-        window.addEventListener("pointercancel", onPointerUp);
+        function bind(target, type, fn, opts) {
+          target.addEventListener(type, fn, opts);
+        }
+
+        // Pointer + mouse fallbacks (some automation only sends mouse events)
+        bind(viewer, "pointerdown", onPointerDown);
+        bind(window, "pointermove", onPointerMove, { passive: false });
+        bind(window, "pointerup", onPointerUp);
+        bind(window, "pointercancel", onPointerUp);
+        bind(viewer, "mousedown", onPointerDown);
+        bind(window, "mousemove", onPointerMove);
+        bind(window, "mouseup", onPointerUp);
+
+        // Also allow wheel / trackpad horizontal as a rotate affordance
+        viewer.addEventListener(
+          "wheel",
+          (e) => {
+            const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            angle += dx / 900;
+            hint.classList.add("is-hidden");
+            forcePaint();
+            e.preventDefault();
+          },
+          { passive: false }
+        );
 
         function tick() {
           if (!dragging && !reduceMotion && Math.abs(vel) > 0.00015) {
